@@ -22,7 +22,6 @@ The **easy_tfrecords** module contains methods and classes that allow you to wri
 - Create a reader class object, specifying your file list (can be length 1), optionally specifying batch size and shuffe spec.
 - pass a list of which inputs to read from the file
 
-### _Usage_:<br>
 #### Example Code:
 ```python
 import numpy as np
@@ -66,7 +65,7 @@ with tf.Session() as sess:
 
 sess.close()
 ```
-
+#### Output :
 ```
 ------------
 n => 0

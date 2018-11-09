@@ -10,7 +10,7 @@ with open("README.md", "r") as fh:
 
 setuptools.setup(
     name="easy_tfrecords",
-    url="https://github.com/pckosek/tfrecordutils",
+    url="https://github.com/pckosek/easy_tfrecords",
     version="0.0.1",
     description="Package to streamline reading and writing data to tfrecord files",
     long_description=long_description,
