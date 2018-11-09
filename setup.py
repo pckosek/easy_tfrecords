@@ -5,14 +5,20 @@ REQUIRED_PACKAGES = [
     'numpy >= 1.13',
 ]
 
+with open("README.md", "r") as fh:
+    long_description = fh.read()
+
 setuptools.setup(
     name="easy_tfrecords",
     url="https://github.com/pckosek/tfrecordutils",
     version="0.0.1",
     description="Package to streamline reading and writing data to tfrecord files",
-    author="Paul Kosek",
-
-    packages=["easy_tfrecords"],
+    long_description=long_description,
+    long_description_content_type="text/markdown",    
+    author="Paul Kosek",    
+    author_email="pckosek@fcps.edu",
+    
+    packages=setuptools.find_packages(),
     include_package_data=True,
 
     # Dependent packages (distributions)

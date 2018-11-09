@@ -4,7 +4,7 @@ import json
 from functools import reduce
 from operator import mul
 
-BATCH_SIZE = 1
+DEFAULT_BATCH_SIZE = 1
 
 # --------------------------------------------------- #
 # HELPER FUNCTIONS FOR TYPES AND LISTS OF TYPES
@@ -44,80 +44,94 @@ def dtype_lookup(dtype_in) :
       'float64': tf.float32
   }[dtype_in]
 
+
+ # TF_RECORDS_FILE => file to save, **DATA_PAIRS => key=vals of data
+def create_tfrecords(tf_records_file, **data_pairs) :
+
+  # WRITER FUNCTIONS ------------------------------------------
+
+  # CREATE THE WRITER OBJECT
+  writer = tf.python_io.TFRecordWriter(tf_records_file)
+
+  # PULL THE FIRST PAIRED ARGUMENT. THIS WILL BE USED FOR SIZING PURPOSES
+  indx_elem = next(iter(data_pairs), None)
+  num_elems = data_pairs[indx_elem].shape[0]
+
+  # ITERATE THROUGH DATA PAIRS
+  for indx in range( num_elems ):
+
+    # CREATE A {FEATURES} KEY THAT INCLUDES A FEATURE FOR EACH NAMED ARGUMENT
+    example = tf.train.Example(features=tf.train.Features(feature={
+      key : feature_map[val.dtype.name](val[indx].reshape([-1]))
+        for key, val in data_pairs.items()
+    }))
+
+    # I.E. => (e.g)  example = tf.train.Example(features=tf.train.Features(feature={
+    #                  'x': _float_list_feature(thisX),
+    #                  'y': _float_list_feature(thisY),
+    #                }))
+
+    # WRITE THIS EXAMPLE TO THE FILE
+    writer.write(example.SerializeToString())  
+
+  # CLOSE THE WRITER OBJECT
+  writer.close()
+
+  # DATA SHAPE REFERENCE FUNTIONS ---------------------------
+
+  # DETERMINE THE SHAPE OF EACH KEYED VALUE
+  shapes = { key : 
+    { 'shape' : list(val[0].shape), 'dtype' : val.dtype.name, 'num_elems' :  reduce(mul, list(val[0].shape), 1 ) } for key, val in data_pairs.items() 
+  }
+
+  # WRITE THE SHAPE OBJECT TO A FILE
+  with open('{}.json'.format(tf_records_file), 'w') as outfile:
+    json.dump(shapes, outfile)
+
+
 # --------------------------------------------------- #
 # FUNCTION FOR CREATING TF_RECORDS DATA
 # --------------------------------------------------- #
 class easy_tfrecords:
 
   # DATA_ID => identifier for json structure,
-  def __init__(self, data_id) :
-    self.data_id    = data_id
+  def __init__(self, filenames, shuffle=False, batch_size=DEFAULT_BATCH_SIZE) :
     
+    # LOAD FILES
+    self.filenames = filenames
+    self.filename_queue = tf.train.string_input_producer(filenames)
+    self.shuffle = shuffle
+    self.batch_size = batch_size
 
-   # TF_RECORDS_FILE => file to save, **DATA_PAIRS => key=vals of data
-  def create_tfrecords(self, tf_records_file, **data_pairs) :
-
-    # WRITER FUNCTIONS ------------------------------------------
-
-    # CREATE THE WRITER OBJECT
-    writer = tf.python_io.TFRecordWriter(tf_records_file)
-
-    # PULL THE FIRST PAIRED ARGUMENT. THIS WILL BE USED FOR SIZING PURPOSES
-    indx_elem = next(iter(data_pairs), None)
-    num_elems = data_pairs[indx_elem].shape[0]
-
-    # ITERATE THROUGH DATA PAIRS
-    for indx in range( num_elems ):
-
-      # CREATE A {FEATURES} KEY THAT INCLUDES A FEATURE FOR EACH NAMED ARGUMENT
-      example = tf.train.Example(features=tf.train.Features(feature={
-        key : feature_map[val.dtype.name](val[indx].reshape([-1]))
-          for key, val in data_pairs.items()
-      }))
-
-      # I.E. => (e.g)  example = tf.train.Example(features=tf.train.Features(feature={
-      #                  'x': _float_list_feature(thisX),
-      #                  'y': _float_list_feature(thisY),
-      #                }))
-
-      # WRITE THIS EXAMPLE TO THE FILE
-      writer.write(example.SerializeToString())  
-
-    # CLOSE THE WRITER OBJECT
-    writer.close()
-
-    # DATA SHAPE REFERENCE FUNTIONS ---------------------------
-
-    # DETERMINE THE SHAPE OF EACH KEYED VALUE
-    shapes = { key : 
-      { 'shape' : list(val[0].shape), 'dtype' : val.dtype.name, 'num_elems' :  reduce(mul, list(val[0].shape), 1 ) } for key, val in data_pairs.items() 
-    }
-
-    # WRITE THE SHAPE OBJECT TO A FILE
-    with open('{}.json'.format(self.data_id), 'w') as outfile:
-      json.dump(shapes, outfile)
+    # GET THE BASE STRUCTURE OF THE FILE
+    self.__get_base_structure()      
 
 
-  # SET BASE STRUCTURE 
-  def get_base_structure(self) :
-    # LOAD JSON - THIS WILL NEED TO GO IN THE CLASS
-    with open('{}.json'.format(self.data_id)) as data_file:
+  # GET BASE STRUCTURE 
+  def __get_base_structure(self) :
+
+    # LOAD JSON - DEFINE STRUCTURE FOR READER
+    with open('{}.json'.format(self.filenames[0])) as data_file:
       self.base_structure = json.load(data_file)
 
 
   # READ DATA FROM THE FILE
-  def read_and_decode(self, filename_queue, shuffle=False, batch_size=BATCH_SIZE) :
+  def __read_and_decode(self, input_keys=None) :
 
     # CONSTRUCT OBJECT READER
     reader = tf.TFRecordReader()
 
-    _, serialized_example = reader.read(filename_queue)
+    _, serialized_example = reader.read(self.filename_queue)
 
     features = tf.parse_single_example(
         serialized_example,
-        features={ 
-          key : tf.FixedLenFeature([val['num_elems']], dtype_lookup(val['dtype']) )
-            for key, val in self.base_structure.items()
+
+        # FEATURES WILL BE KEYS IN THE ORDER THEY WERE PASSED TO INPUTS
+        features={
+          key : tf.FixedLenFeature( 
+            [self.base_structure[key]['num_elems']] , 
+            dtype_lookup(self.base_structure[key]['dtype'])
+          ) for key in input_keys 
         }
 
         # I.E. => (e.g)
@@ -128,38 +142,52 @@ class easy_tfrecords:
     )
 
     # RESHAPE TO ORIGINAL DATA SHAPE
-    reshape_op = [ tf.reshape(val, self.base_structure[key]['shape']) for key, val in features.items() ]
+    reshape_op = [ 
+      tf.reshape(val, self.base_structure[key]['shape']) 
+      for key, val in features.items() 
+    ]
 
     # BATCH OPTIONALLY SHUFFLED DATA
-    if shuffle==True :
-      possibly_batched = tf.train.shuffle_batch(
+    if self.shuffle is True :
+      possibly_shuffled = tf.train.shuffle_batch(
         reshape_op, 
-        batch_size=batch_size,
+        batch_size=self.batch_size,
         capacity=100,
         min_after_dequeue=20)
-    elif shuffle==False :
-      possibly_batched = tf.train.batch(
+    elif self.shuffle is not True :
+      possibly_shuffled = tf.train.batch(
         reshape_op, 
-        batch_size=batch_size)
+        batch_size=self.batch_size)
 
-    return possibly_batched
+    return possibly_shuffled
 
 
   # FUNCTION CALLED BY THE TENSORFLOW FETCH OPERATION
-  def inputs(self, filenames, shuffle=False, batch_size=BATCH_SIZE) :
+  def inputs(self, input_keys=None) :
 
-    # LOAD APPROPRIATE DATA STRUCTURE - IF NECESSARY
-    try:
-        self.base_structure
-    except :
-        self.get_base_structure()    
-    
+    if input_keys is None :
+      return None
+    else :
+      return self.__read_and_decode(input_keys=input_keys)
+
+
     # LOAD FILES
-    filename_queue = tf.train.string_input_producer(filenames)
-    return self.read_and_decode(filename_queue, shuffle, batch_size)
+    # return self.read_and_decode(filename_queue, shuffle, batch_size)
 
     # GIVE THE INPUTS NAMES
     # x = tf.identity(x, name="x_batch_{}".format(name))
     # y = tf.identity(y, name="y_batch_{}".format(name))
 
     # return x, y
+
+
+# OUTPUT THE FIRST RECORD OF THE FILE TO STRING
+def tell(tf_records_file) :
+
+  examples = tf.python_io.tf_record_iterator(tf_records_file)
+  bytes = next(examples)
+  example_string = '{}'.format(tf.train.Example.FromString(bytes))
+
+  # WRITE THE SHAPE OBJECT TO A FILE
+  with open('{}.txt'.format(tf_records_file), 'w') as outfile:
+    outfile.write(example_string)
