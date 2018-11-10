@@ -38,7 +38,7 @@ y      = np.array([0.25], np.float32)
 trainY = np.asarray( [y, y+1, y+2] )
 
 
-# CREATE AND SAVE TO A COUPLE TFRECORDS FILES
+# CREATE AND SAVE TO A FEW TFRECORDS FILES
 create_tfrecords('tfr_1.tf', x=trainX, y=trainY)
 create_tfrecords('tfr_2.tf', x=trainX+10, y=trainY+10)
 create_tfrecords('tfr_3.tf', x=trainX+100, y=trainY+100, z=trainY+100)

@@ -46,7 +46,7 @@ def dtype_lookup(dtype_in) :
 
 
  # TF_RECORDS_FILE => file to save, **DATA_PAIRS => key=vals of data
-def create_tfrecords(tf_records_file, **data_pairs) :
+def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
 
   # WRITER FUNCTIONS ------------------------------------------
 
@@ -55,14 +55,23 @@ def create_tfrecords(tf_records_file, **data_pairs) :
 
   # PULL THE FIRST PAIRED ARGUMENT. THIS WILL BE USED FOR SIZING PURPOSES
   indx_elem = next(iter(data_pairs), None)
-  num_elems = data_pairs[indx_elem].shape[0]
+  
+  if matlab is True :
+    num_elems = data_pairs[indx_elem].shape[-1]
+    shapes_indx = [...,0]
+  elif matlab is False :
+    num_elems = data_pairs[indx_elem].shape[0]
+    shapes_indx = [0,...]
+
 
   # ITERATE THROUGH DATA PAIRS
   for indx in range( num_elems ):
 
     # CREATE A {FEATURES} KEY THAT INCLUDES A FEATURE FOR EACH NAMED ARGUMENT
     example = tf.train.Example(features=tf.train.Features(feature={
-      key : feature_map[val.dtype.name](val[indx].reshape([-1]))
+      key : feature_map[val.dtype.name](val[
+          [...,indx] if matlab is True else [indx,...]
+        ].reshape([-1]))
         for key, val in data_pairs.items()
     }))
 
@@ -81,7 +90,7 @@ def create_tfrecords(tf_records_file, **data_pairs) :
 
   # DETERMINE THE SHAPE OF EACH KEYED VALUE
   shapes = { key : 
-    { 'shape' : list(val[0].shape), 'dtype' : val.dtype.name, 'num_elems' :  reduce(mul, list(val[0].shape), 1 ) } for key, val in data_pairs.items() 
+    { 'shape' : list(val[shapes_indx].shape), 'dtype' : val.dtype.name, 'num_elems' :  reduce(mul, list(val[shapes_indx].shape), 1 ) } for key, val in data_pairs.items() 
   }
 
   # WRITE THE SHAPE OBJECT TO A FILE
