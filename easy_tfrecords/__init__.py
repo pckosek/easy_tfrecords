@@ -1,1 +1,1 @@
-from .easy_tfrecords import easy_tfrecords
+from .easy_tfrecords import easy_tfrecords, create_tfrecords, tell
