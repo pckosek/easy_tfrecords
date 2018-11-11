@@ -1,1 +1,1 @@
-name = "easy_tfrecords"
+from .easy_tfrecords import easy_tfrecords

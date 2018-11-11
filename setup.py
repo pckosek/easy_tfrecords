@@ -6,7 +6,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="easy_tfrecords",
     url="https://github.com/pckosek/easy_tfrecords",
-    version="0.0.4",
+    version="0.0.5",
     description="Package to streamline reading and writing data to tfrecord files",
     long_description=long_description,
     long_description_content_type="text/markdown",    
