@@ -3,6 +3,7 @@ import numpy as np
 import json
 from functools import reduce
 from operator import mul
+from collections import OrderedDict
 
 DEFAULT_BATCH_SIZE = 1
 
@@ -47,6 +48,7 @@ def dtype_lookup(dtype_in) :
 
  # TF_RECORDS_FILE => file to save, **DATA_PAIRS => key=vals of data
 def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
+
 
   # WRITER FUNCTIONS ------------------------------------------
 
@@ -126,6 +128,9 @@ class easy_tfrecords:
 
   # READ DATA FROM THE FILE
   def __read_and_decode(self, input_keys=None) :
+
+    # ORDER THE UNORDERED
+    input_keys = OrderedDict.fromkeys(input_keys)
 
     # CONSTRUCT OBJECT READER
     reader = tf.TFRecordReader()
