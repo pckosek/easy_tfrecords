@@ -44,13 +44,19 @@ create_tfrecords('tfr_2.tf', x=trainX+10, y=trainY+10)
 create_tfrecords('tfr_3.tf', x=trainX+100, y=trainY+100, z=trainY+100)
 
 # INSTANTIATE THE RECORDS OBJECT
-batch_x, batch_y = records(['tfr_1.tf', 'tfr_2.tf', 'tfr_3.tf'], shuffle=False, batch_size=1).inputs(['x', 'y'])
+rec = records(files=['data_1.tf', 'data_2.tf'],
+  shuffle=False,
+  batch_size=1, 
+  keys=['x', 'y'])
+
+next_factory = rec.get_next_factory()
+
+batch_x = next_factory['x']
+batch_y = next_factory['y']
 
 with tf.Session() as sess:
 
-  # enable batch fetchers
-  coord   = tf.train.Coordinator()
-  threads = tf.train.start_queue_runners(coord=coord)
+  sess.run(rec.get_initializer())
 
   for n in range(10):
     print('------------')
@@ -59,9 +65,6 @@ with tf.Session() as sess:
     x_eval, y_eval = sess.run( [batch_x, batch_y] )
     print('x_eval=\n{}\n'.format(x_eval))
     print('y_eval=\n{}'.format(y_eval))
-
-  coord.request_stop()
-  coord.join(threads)
 
 sess.close()
 ```
