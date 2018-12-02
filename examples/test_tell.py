@@ -1,6 +1,5 @@
 import numpy as np
 import tensorflow as tf
-
 from easy_tfrecords import create_tfrecords, tell
 
 

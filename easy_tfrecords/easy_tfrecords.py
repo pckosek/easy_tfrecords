@@ -47,7 +47,7 @@ def dtype_lookup(dtype_in) :
 
 
  # TF_RECORDS_FILE => file to save, **DATA_PAIRS => key=vals of data
-def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
+def create_tfrecords(tf_records_file, high_dim_sort=False, **data_pairs) :
 
 
   # WRITER FUNCTIONS ------------------------------------------
@@ -58,10 +58,10 @@ def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
   # PULL THE FIRST PAIRED ARGUMENT. THIS WILL BE USED FOR SIZING PURPOSES
   indx_elem = next(iter(data_pairs), None)
   
-  if matlab is True :
+  if high_dim_sort is True :
     num_elems = data_pairs[indx_elem].shape[-1]
     shapes_indx = [...,0]
-  elif matlab is False :
+  elif high_dim_sort is False :
     num_elems = data_pairs[indx_elem].shape[0]
     shapes_indx = [0,...]
 
@@ -72,7 +72,7 @@ def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
     # CREATE A {FEATURES} KEY THAT INCLUDES A FEATURE FOR EACH NAMED ARGUMENT
     example = tf.train.Example(features=tf.train.Features(feature={
       key : feature_map[val.dtype.name](val[
-          [...,indx] if matlab is True else [indx,...]
+          [...,indx] if high_dim_sort is True else [indx,...]
         ].reshape([-1]))
         for key, val in data_pairs.items()
     }))
@@ -106,16 +106,21 @@ def create_tfrecords(tf_records_file, matlab=False, **data_pairs) :
 class easy_tfrecords:
 
   # DATA_ID => identifier for json structure,
-  def __init__(self, filenames, shuffle=False, batch_size=DEFAULT_BATCH_SIZE) :
+  def __init__(self, files=None, shuffle=False, batch_size=DEFAULT_BATCH_SIZE, keys=None) :
     
     # LOAD FILES
-    self.filenames = filenames
-    self.filename_queue = tf.train.string_input_producer(filenames)
+    self.filenames = files
     self.shuffle = shuffle
     self.batch_size = batch_size
 
     # GET THE BASE STRUCTURE OF THE FILE
-    self.__get_base_structure()      
+    self.__get_base_structure()
+
+    # INPUT KEYS
+    if keys is not None :
+      self.set_keys(keys)
+    else :
+      self.input_keys = False
 
 
   # GET BASE STRUCTURE 
@@ -127,15 +132,9 @@ class easy_tfrecords:
 
 
   # READ DATA FROM THE FILE
-  def __read_and_decode(self, input_keys=None) :
+  def __read_and_decode(self, serialized_example) :
 
-    # ORDER THE UNORDERED
-    input_keys = OrderedDict.fromkeys(input_keys)
-
-    # CONSTRUCT OBJECT READER
-    reader = tf.TFRecordReader()
-
-    _, serialized_example = reader.read(self.filename_queue)
+    input_keys = self.input_keys
 
     features = tf.parse_single_example(
         serialized_example,
@@ -145,7 +144,8 @@ class easy_tfrecords:
           key : tf.FixedLenFeature( 
             [self.base_structure[key]['num_elems']] , 
             dtype_lookup(self.base_structure[key]['dtype'])
-          ) for key in input_keys 
+          ) for key in input_keys
+
         }
 
         # I.E. => (e.g)
@@ -156,44 +156,56 @@ class easy_tfrecords:
     )
 
     # RESHAPE TO ORIGINAL DATA SHAPE
-    reshape_op = [ 
-      tf.reshape(val, self.base_structure[key]['shape']) 
-      for key, val in features.items() 
-    ]
-
-    # BATCH OPTIONALLY SHUFFLED DATA
-    if self.shuffle is True :
-      possibly_shuffled = tf.train.shuffle_batch(
-        reshape_op, 
-        batch_size=self.batch_size,
-        capacity=100,
-        min_after_dequeue=20)
-    elif self.shuffle is not True :
-      possibly_shuffled = tf.train.batch(
-        reshape_op, 
-        batch_size=self.batch_size)
-
-    return possibly_shuffled
+    reshape_op = dict(map(
+      lambda keyvals: 
+        (
+          keyvals[0], 
+          tf.reshape(keyvals[1], self.base_structure[keyvals[0]]['shape'])
+        ), features.items()))
+    
+    return reshape_op
 
 
   # FUNCTION CALLED BY THE TENSORFLOW FETCH OPERATION
-  def inputs(self, input_keys=None) :
+  def set_keys(self, input_keys) :
 
     if input_keys is None :
       return None
     else :
-      return self.__read_and_decode(input_keys=input_keys)
+      self.input_keys = input_keys
+
+      files = tf.data.Dataset.list_files(self.filenames)
+
+      # INPUT PIPELINE
+      # ==> https://www.tensorflow.org/guide/performance/datasets
+
+      dataset = files.interleave(tf.data.TFRecordDataset,1)
+      if self.shuffle is not False :
+        dataset = dataset.shuffle(buffer_size=self.shuffle)
+      dataset = dataset.map(map_func=self.__read_and_decode)
+      dataset = dataset.batch(batch_size=self.batch_size)
+      dataset = dataset.repeat()
+      self.dataset = dataset
+
+      # ITERATOR PIPELINE
+      self.set_iterator()
 
 
-    # LOAD FILES
-    # return self.read_and_decode(filename_queue, shuffle, batch_size)
+  def set_iterator(self) :
+    self.iterator = self.dataset.make_initializable_iterator()
+    self.next_factory = self.iterator.get_next()
 
-    # GIVE THE INPUTS NAMES
-    # x = tf.identity(x, name="x_batch_{}".format(name))
-    # y = tf.identity(y, name="y_batch_{}".format(name))
 
-    # return x, y
+  def get_next_factory(self) :
+    return self.next_factory
 
+
+  def get_dataset(self) :
+    return self.dataset
+
+
+  def get_initializer(self) :
+    return self.iterator.initializer
 
 # OUTPUT THE FIRST RECORD OF THE FILE TO STRING
 def tell(tf_records_file) :
